@@ -70,6 +70,7 @@ def xml_to_dict(adsrecords):
   """
   return xmltodict.parse(adsrecords.serialize())
 
+
 def readRecordsFromADSExports(records):
     '''
     records: [(bibcode,JSON_fingerprint),...]
