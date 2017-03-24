@@ -24,7 +24,7 @@ class Merger:
     self.eL = enforce_schema.Enforcer().ensureList
     self.merger_rules = merger_rules
     self.priorities = priorities
-    self.references_always_prepend = references_always_append
+    self.references_always_append = references_always_append
     
     if blocks:
       #Assert that there is only block type being merged

@@ -1,6 +1,7 @@
 import sys
 import os
 
+from collections import OrderedDict
 import mock
 from mock import patch
 from aip import app
@@ -22,18 +23,27 @@ class TestWorkers(unittest.TestCase):
         test_base.TestUnit.tearDown(self)
         Base.metadata.drop_all()
         app.close_app()
-        
-    
+
+
     @patch('aip.app.task_merge_metadata.delay', return_value=None)
-    @patch('aip.libs.read_records.readRecordsFromADSExports', return_value=[stubdata.INPUT_DOC])
-    def test_task_merge_metadata(self, task_merge_metadata, *args):
-        self.assertFalse(task_merge_metadata.called)
+    @patch('aip.libs.read_records.readRecordsFromADSExports', 
+           return_value=[stubdata.ADSRECORDS['2015ApJ...815..133S'], stubdata.ADSRECORDS['2015ASPC..495..401C']])
+    def test_task_read_records(self, next_task, *args):
+        self.assertFalse(next_task.called)
         app.task_read_records([('bibcode', 'fingerprint')])
-        self.assertTrue(task_merge_metadata.called)
-        
+        self.assertTrue(next_task.called)
+    
     
     @patch('aip.app.task_update_record.delay', return_value=None)
-    def test_task_update_record(self, task_update_record, *args):
-        self.assertFalse(task_update_record.delay.called)
-        app.task_merge_metadata(stubdata.INPUT_DOC)
-        self.assertTrue(task_update_record.delay.called)
+    def test_task_merge_metadata(self, next_task, *args):
+        self.assertFalse(next_task.called)
+        app.task_merge_metadata(stubdata.ADSRECORDS['2015ApJ...815..133S'])
+        self.assertTrue(next_task.called)
+        next_task.assert_called_with(u'metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
+        
+    
+    @patch('aip.app.task_update_solr.delay', return_value=None)
+    def test_task_update_record(self, next_task, *args):
+        self.assertFalse(next_task.called)
+        app.task_update_record('metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
+        self.assertTrue(next_task.called)

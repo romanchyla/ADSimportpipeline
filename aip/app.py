@@ -88,6 +88,11 @@ def task_update_record(type, payload):
 
 @app.task(base=MyTask, queue='update-solr')
 def task_update_solr(bibcodes, force=False):
+    """Receives bibcodes and checks the database if we have all the 
+    necessary pieces to push to solr. If not, then postpone and 
+    push later.
+    
+    """
     #TODO: for every bibcode check if we have all parts
     # if yes, and the time window of last update was long enough
         # build the record and send it to solr
