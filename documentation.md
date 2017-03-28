@@ -94,11 +94,52 @@ Described above are the queues. Celery workers will attach to the queue.
     a claim into the update-record queue). There are different strategies implemented inside the worker.
 
 
+## Invocation
 
+The workflow is initiated by invoking `run.py`.
+    
+It has various options but basically it will (brute force) comparison of ADS Classic against the
+current database state. It will read off all ADS Classic bibcodes, discover orphaned records (and
+submit them for deletion) - and then it will submit everything else into the `find-new-records`
+queue. There the workers take over.    
 
-## Maintainers
+ 
 
-    Steve, Roman
-    
-    
-    
+## Requirements
+    - celery
+    - rabbitmq
+    - ADSExports (and access to the /proj/ads... files)
+    - sqlalchemy (+ postgres)
+    - Note: The rabbitmq server should be configured for frame_max=512000
+
+## Update store
+
+To force an update of a list of bibcodes use the following:
+```
+python run.py --ignore-json-fingerprints --target-bibcodes @reindex/reingest_20161122.txt
+```
+
+## Updating Solr
+It is possible for Solr to be missing data on some bibcodes.  When
+this happens, use ADSimportpipeline to add the missing bibcodes.  
+First, to obtain a list of bibcodes known to Solr use:
+```
+curl 
+http://solrInstance:8983/solr/collection1/select?q=*:*&rows=20000000&fl=bibcode&wt=csv
+> solrBibcodes.txt
+```
+
+The canonical list of bibcodes is available as a column/flat file (sorted case-insensitively)
+from the ingest pipeline.  Comparing these two files requires sorting the new file
+and then using unix's join command:
+
+```
+sort -f solrBibcodes.txt | join -i bibcodes.list.can - > notInSolr_20161122.txt
+```
+
+This creates a file with bibcodes that were in canonical but not
+solr.  This list can be injected into the pipeline with:
+```
+python/bin/python2.7 utils/publish_bibcodes_to_solr.py --from-file reindex/notInSolr_20161122.txt
+```
+  

@@ -42,6 +42,32 @@ def task_foo(a, b):
     return a+b
         
 
+@app.task(base=MyTask, queue='find-new-records')
+def task_find_new_records(fingerprints):
+    """Finds bibcodes that are in need of updating. It will do so by comparing
+    the json_fingerprint against exosting db record.
+    
+    Inputs to this task are submitted by the run.py process; which reads/submits
+    contents of the BIBFILES
+    
+    @param fingerprints: [(bibcode, json_fingerprint),....]
+    """
+    fps = {}
+    for k, v in fingerprints:
+        fps[k] = v
+        
+    bibcodes = [x[0] for x in fingerprints]
+    results = update_records.get_record(bibcodes, load_only=['bibcode', 'bib_data'])
+    found = set()
+    for r in results:
+        found.add(r['bibcode'])
+        if r['bib_data'].get('JSON_fingerprint', None) != fps[r['bibcode']]:
+            task_read_records.delay(r['bibcode'])
+    # submit bibcodes that we don't have in the database
+    for b in set(fps.keys()) - found:
+        task_read_records.delay(b)
+
+
 
 @app.task(base=MyTask, queue='read-records')
 def task_read_records(fingerprints):
@@ -91,6 +117,17 @@ def task_update_solr(bibcode, force=False, delayed=1):
     necessary pieces to push to solr. If not, then postpone and 
     push later.
     
+    We consider a record to be 'ready' if those pieces of were updated
+    (and were updated later than the last 'processed' timestamp):
+    
+        - bib_data
+        - nonbib_data
+        - orcid_claims
+        
+    'fulltext' is not considered essential; but updates to fulltext will
+    trigger a solr_update (so it might happen that a document will get
+    indexed twice; first with only metadata and later on incl fulltext) 
+    
     """
     #check if we have complete record
     r = update_records.get_record(bibcode)
@@ -103,53 +140,45 @@ def task_update_solr(bibcode, force=False, delayed=1):
     fulltext_updated = r.get('fulltext_updated', None)
     processed = r.get('processed', utils.get_date('1800'))
      
-    is_complete = all(bib_data_updated, orcid_claims_updated, nonbib_data_updated)
+    is_complete = all([bib_data_updated, orcid_claims_updated, nonbib_data_updated])
     
-    # check if we need any to do any updating
-    if is_complete and force is False:
-        if all(bib_data_updated and bib_data_updated < processed,
+    
+    if is_complete:
+        if force is False and all([bib_data_updated and bib_data_updated < processed,
                orcid_claims_updated and orcid_claims_updated < processed,
-               nonbib_data_updated and nonbib_data_updated < processed):
-            return # nothing to do, it wasn already indexed/processed 
+               nonbib_data_updated and nonbib_data_updated < processed]):
+            return # nothing to do, it was already indexed/processed
+        else:
+            # build the record and send it to solr
+            solr_updater.update_solr(r, app.conf.get('SOLR_URLS'))
+            update_records.update_processed_timestamp(bibcode)
     else:
-        # if not complete, register a delayed execution
-        c = min(app.conf.get('MAX_DELAY', 24*3600*2), # two days 
-                            math.pow(app.conf.get('DELAY_BASE', 10), delayed))
-        logger.warn('{bibcode} is not yet complete, registering delayed execution in {time}s'.format(
-                        bibcode=bibcode, time=c))
-        task_update_solr.apply_async((bibcode, delayed+1), countdown = c)
-        return
-        
-    # build the record and send it to solr
-    solr_updater.update_solr(r, app.conf.get('SOLR_URLS'))
-    update_records.update_processed_timestamp(bibcode)
-
-
-@app.task(base=MyTask, queue='find-new-records')
-def task_find_new_records(fingerprints):
-    """Finds bibcodes that are in need of updating. It will do so by comparing
-    the json_fingerprint against the new record.
-    
-    @param fingerprints: [(bibcode, json_fingerprint),....]
-    
-    TODO: likely an obsolete method, to be removed/nuked/erased?
-    """
-    
-    results = [] #_mongo.findNewRecords(fingerprints)
-    if results:
-        task_read_records.delay(results)
+        # if we have at least the bib data, index it
+        if force is True and bib_data_updated:
+            logger.warn('Forced indexing of: %s (metadata=%s, orcid=%s, nonbib=%s, fulltext=%s)' % \
+                        (bibcode, bib_data_updated, orcid_claims_updated, nonbib_data_updated, fulltext_updated))
+            # build the record and send it to solr
+            solr_updater.update_solr(r, app.conf.get('SOLR_URLS'))
+            update_records.update_processed_timestamp(bibcode)
+        else:
+            # if not complete, register a delayed execution
+            c = min(app.conf.get('MAX_DELAY', 24*3600*2), # two days 
+                                math.pow(app.conf.get('DELAY_BASE', 10), delayed))
+            logger.warn('{bibcode} is not yet complete, registering delayed execution in {time}s'.format(
+                            bibcode=bibcode, time=c))
+            task_update_solr.apply_async((bibcode, delayed+1), countdown = c)
+            return
         
         
 @app.task(base=MyTask, queue='delete-documents')
-def task_delete_documents(bibcodes):
-    """Delete documents from SOLR and from our storage.
-    
-    @param bibcodes: array of bibcodes 
+def task_delete_documents(bibcode):
+    """Delete document from SOLR and from our storage.
+    @param bibcode: string 
     """
-    for b in bibcodes:
-        update_records.delete_by_bibcode(b)
-    deleted, failed = solr_updater.delete_by_bibcodes(bibcodes, app.conf['SOLR_URLS'])
-    task_handle_errors.delay('ads.import-pipeline.delete-documents', failed)
+    update_records.delete_by_bibcode(bibcode)
+    deleted, failed = solr_updater.delete_by_bibcodes([bibcode], app.conf['SOLR_URLS'])
+    if len(failed):
+        task_handle_errors.delay('ads.import-pipeline.delete-documents', failed)
 
 
 @app.task(base=MyTask, queue='errors')

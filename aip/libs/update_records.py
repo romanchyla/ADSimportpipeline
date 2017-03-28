@@ -10,6 +10,7 @@ from aip.libs import enforce_schema
 from aip.db import session_scope
 from aip.models import Records, ChangeLog
 from aip.libs.utils import get_date
+from sqlalchemy.orm import load_only as _load_only
 
 def mergeRecords(records):
     completeRecords = []
@@ -80,13 +81,26 @@ def update_storage(bibcode, type, payload):
         session.commit()
 
 
-def get_record(bibcode):
-    with session_scope() as session:
-        r = session.query(Records).filter_by(bibcode=bibcode).first()
-        if r is None:
-            return None
-        return r.toJSON()
-
+def get_record(bibcode, load_only=None):
+    if isinstance(bibcode, list):
+        out = []
+        with session_scope() as session:
+            q = session.query(Records).filter(Records.bibcode.in_(bibcode))
+            if load_only:
+                q = q.options(_load_only(*load_only))
+            for r in q.all():
+                out.append(r.toJSON(load_only=load_only))
+        return out
+    else:
+        with session_scope() as session:
+            q = session.query(Records).filter_by(bibcode=bibcode)
+            if load_only:
+                q = q.options(_load_only(*load_only))
+            r = q.first()
+            if r is None:
+                return None
+            return r.toJSON(load_only=load_only)
+   
 
 def update_processed_timestamp(bibcode):
     with session_scope() as session:

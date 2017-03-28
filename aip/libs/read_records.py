@@ -146,3 +146,39 @@ def readRecordsFromPickles(records,files):
         #r['text'] = e.enforceTextSchema() TODO, once implemneted in ADSExports
     logger.info('readRecordsFromPickles: Read %s records from %s files' % (len(records),len(files)))
     return records
+
+
+def findNewRecords(records):
+    '''
+    Finds records that need updating.
+    
+    @param records: [(bibcode, json_fingeprints),...]
+    
+    Update criteria: JSON_fingerprint field different from the input records
+
+    @return: [(bibcode,JSON_fingerprint),...]
+    '''
+    if not records:
+        logger.debug("findChangedRecords: No records given")
+        return []
+
+    currentRecords = [(r['bibcode'],r['JSON_fingerprint']) for r in self.db[self.collection].find({"bibcode": {"$in": [rec[0] for rec in records]}})]
+
+    #If the JSON fingerprint is the string 'ignore' and it isnt marked for updated,
+    #Make sure it gets updated anyways.
+    if any(r[1]=='ignore' for r in records):
+      if any(r[1]!='ignore' for r in records):
+        self.logger.warning("Unexpected of mixture of JSON ignore/unignore'd in this payload! Proceed with ignore strategy")
+      results = []
+      for r in records:
+        if r[0] not in results:
+          if r[0] in [i[0] for i in currentRecords]:
+            results.append(filter(lambda t: t[0]==r[0], currentRecords)[0])
+          else:
+            results.append(r)
+      return results
+
+    results = list(set([(r[0],r[1]) for r in records]).difference(currentRecords))
+
+    self.logger.info('findChangedRecords: %s results' % len(results))
+    return results

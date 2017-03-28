@@ -54,6 +54,14 @@ class TestUpdateRecords(unittest.TestCase):
         self.assertEquals(r['id'], 1)
         self.assertEquals(r['processed'], None)
         
+        r = update_records.get_record(['abc'])
+        self.assertEquals(r[0]['id'], 1)
+        self.assertEquals(r[0]['processed'], None)
+        
+        r = update_records.get_record('abc', load_only=['id'])
+        self.assertEquals(r['id'], 1)
+        self.assertFalse('processed' in r)
+        
         update_records.update_processed_timestamp('abc')
         r = update_records.get_record('abc')
         self.assertTrue(r['processed'] > now)

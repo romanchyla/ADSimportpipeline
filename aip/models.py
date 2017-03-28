@@ -54,25 +54,37 @@ class Records(Base):
     updated = Column(UTCDateTime, default=get_date)
     processed = Column(UTCDateTime)
     
-    def toJSON(self, for_solr=False):
+    _date_fields = ['created', 'updated', 'processed',  # dates
+                      'bib_data_updated', 'orcid_claims_updated', 'nonbib_data_updated',
+                      'fulltext_updated']
+    _text_fields = ['id', 'bibcode', 'fulltext']
+    _json_fields = ['bib_data', 'orcid_claims', 'nonbib_data']
+    
+    def toJSON(self, for_solr=False, load_only=None):
         if for_solr:
             return self
         else:
-            doc = {'id': self.id, 'bibcode': self.bibcode }
-            for f in ['created', 'updated', 'processed',  # dates
-                      'bib_data_updated', 'orcid_claims_updated', 'nonbib_data_updated',
-                      'fulltext_updated']:
+            load_only = load_only and set(load_only) or set()
+            doc = {}
+            
+            for f in Records._text_fields:
+                if load_only and f not in load_only:
+                    continue
+                doc[f] = getattr(self, f, None)
+            for f in Records._date_fields:
+                if load_only and f not in load_only:
+                    continue
                 if hasattr(self, f) and getattr(self, f):
                     doc[f] = get_date(getattr(self, f))
                 else:
                     doc[f] = None
-            for f in ['bib_data', 'orcid_claims', 'nonbib_data']: # json
+            for f in Records._json_fields: # json
+                if load_only and f not in load_only:
+                    continue
                 v = getattr(self, f, None)
                 if v:
                     v = json.loads(v)
                 doc[f] = v
-            for f in ['fulltext']: # strings
-                doc[f] = getattr(self, f, None)
                 
             return doc
 
