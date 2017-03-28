@@ -40,12 +40,12 @@ class Records(Base):
     id = Column(Integer, primary_key=True)
     bibcode = Column(String(19))
     
-    metadata = Column(Text)
+    bib_data = Column(Text) # 'metadata' is reserved by SQLAlchemy
     orcid_claims = Column(Text)
     nonbib_data = Column(Text)
     fulltext = Column(Text)
 
-    metadata_updated = Column(UTCDateTime, default=get_date)
+    bib_data_updated = Column(UTCDateTime, default=get_date)
     orcid_claims_updated = Column(UTCDateTime, default=get_date)
     nonbib_data_updated = Column(UTCDateTime, default=get_date)
     fulltext_updated = Column(UTCDateTime, default=get_date)
@@ -58,16 +58,22 @@ class Records(Base):
         if for_solr:
             return self
         else:
-            doc = {'id': self.id }
-            for f in ['created', 'updated', 'processed', 
-                      'metadata_updated', 'orcid_claims_updated', 'nonbib_data_updated',
+            doc = {'id': self.id, 'bibcode': self.bibcode }
+            for f in ['created', 'updated', 'processed',  # dates
+                      'bib_data_updated', 'orcid_claims_updated', 'nonbib_data_updated',
                       'fulltext_updated']:
                 if hasattr(self, f) and getattr(self, f):
                     doc[f] = get_date(getattr(self, f))
                 else:
                     doc[f] = None
-            for f in ['bibcode', 'metadata', 'orcid_claims', 'nonbib_data', 'fulltext']:
+            for f in ['bib_data', 'orcid_claims', 'nonbib_data']: # json
+                v = getattr(self, f, None)
+                if v:
+                    v = json.loads(v)
+                doc[f] = v
+            for f in ['fulltext']: # strings
                 doc[f] = getattr(self, f, None)
+                
             return doc
 
 

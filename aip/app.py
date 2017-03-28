@@ -2,10 +2,11 @@ from __future__ import absolute_import, unicode_literals
 from celery import Celery
 from celery.utils.log import get_task_logger
 from celery import Task
-from aip import error_handler
+from aip import error_handler, db
 from aip.libs import solr_updater, update_records, utils, read_records
 import traceback
 from kombu import Exchange, Queue
+import math
 
 
 
@@ -28,6 +29,7 @@ app.conf.CELERY_QUEUES = (
 )
 
 app.conf.update(conf)
+db.init_app()
 
 class MyTask(Task):
     def on_failure(self, exc, task_id, args, kwargs, einfo):
@@ -64,41 +66,63 @@ def task_merge_metadata(record):
     
     if result and len(result) > 0:
         for r in result: # TODO: save the mid-cycle representation of the metadata ???
-            task_update_record.delay('metadata', r)
+            r = solr_updater.SolrAdapter.adapt(r)
+            solr_updater.SolrAdapter.validate(r)  # Raises AssertionError if not validated
+            task_update_record.delay(r['bibcode'], 'metadata', r)
 
 
 @app.task(base=MyTask, queue='update-record')
-def task_update_record(type, payload):
+def task_update_record(bibcode, type, payload):
     """Receives the canonical version of the metadata.
     
     @param record: JSON metadata
     """
-    
-    bibcode = payload['bibcode']
+    if type not in ('metadata', 'orcid_claims', 'nonbib_data', 'fulltext'):
+        raise Exception('Unkwnown type {0} submitted for update'.format(type))
     
     # save into a database
-    
-    # decide what to do next
-    if type == 'metadata':
-        task_update_solr.delay(bibcode, force=True)
-    else:
-        task_update_solr.delay(bibcode)
-
+    update_records.update_storage(bibcode, type, payload)
+    task_update_solr.delay(bibcode)
 
 
 @app.task(base=MyTask, queue='update-solr')
-def task_update_solr(bibcodes, force=False):
+def task_update_solr(bibcode, force=False, delayed=1):
     """Receives bibcodes and checks the database if we have all the 
     necessary pieces to push to solr. If not, then postpone and 
     push later.
     
     """
-    #TODO: for every bibcode check if we have all parts
-    # if yes, and the time window of last update was long enough
-        # build the record and send it to solr
-    # if not, register a delayed execution
-    pass
-
+    #check if we have complete record
+    r = update_records.get_record(bibcode)
+    if r is None:
+        raise Exception('The bibcode {0} doesn\'t exist!'.format(bibcode))
+    
+    bib_data_updated = r.get('bib_data_updated', None) 
+    orcid_claims_updated = r.get('orcid_claims_updated', None)
+    nonbib_data_updated = r.get('nonbib_data_updated', None)
+    fulltext_updated = r.get('fulltext_updated', None)
+    processed = r.get('processed', utils.get_date('1800'))
+     
+    is_complete = all(bib_data_updated, orcid_claims_updated, nonbib_data_updated)
+    
+    # check if we need any to do any updating
+    if is_complete and force is False:
+        if all(bib_data_updated and bib_data_updated < processed,
+               orcid_claims_updated and orcid_claims_updated < processed,
+               nonbib_data_updated and nonbib_data_updated < processed):
+            return # nothing to do, it wasn already indexed/processed 
+    else:
+        # if not complete, register a delayed execution
+        c = min(app.conf.get('MAX_DELAY', 24*3600*2), # two days 
+                            math.pow(app.conf.get('DELAY_BASE', 10), delayed))
+        logger.warn('{bibcode} is not yet complete, registering delayed execution in {time}s'.format(
+                        bibcode=bibcode, time=c))
+        task_update_solr.apply_async((bibcode, delayed+1), countdown = c)
+        return
+        
+    # build the record and send it to solr
+    solr_updater.update_solr(r, app.conf.get('SOLR_URLS'))
+    update_records.update_processed_timestamp(bibcode)
 
 
 @app.task(base=MyTask, queue='find-new-records')

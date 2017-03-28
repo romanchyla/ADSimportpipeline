@@ -3,9 +3,13 @@ import collections
 import itertools
 import datetime
 import copy
+import json
 
 from aip.libs import merger
 from aip.libs import enforce_schema
+from aip.db import session_scope
+from aip.models import Records, ChangeLog
+from aip.libs.utils import get_date
 
 def mergeRecords(records):
     completeRecords = []
@@ -41,4 +45,53 @@ def mergeRecords(records):
 
 
 def delete_by_bibcode(bibcode):
-    pass
+    with session_scope() as session:
+        r = session.query(Records).filter_by(bibcode=bibcode).first()
+        if r is not None:
+            session.delete(r)
+            session.commit()
+
+
+def update_storage(bibcode, type, payload):
+    if not isinstance(payload, basestring):
+        payload = json.dumps(payload)
+    with session_scope() as session:
+        r = session.query(Records).filter_by(bibcode=bibcode).first()
+        if r is None:
+            r = Records(bibcode=bibcode)
+            session.add(r)
+        now = get_date()
+        if type == 'metadata' or type == 'bib_data':
+            r.bib_data = payload
+            r.bib_data_updated = now 
+        elif type == 'nonbib_data':
+            r.nonbib_data = payload
+            r.nonbib_data_updated = now
+        elif type == 'orcid_claims':
+            r.orcid_claims = payload
+            r.orcid_claims_updated = now
+        elif type == 'fulltext':
+            r.fulltext = payload
+            r.fulltext_updated = now
+        else:
+            raise Exception('Unknown type: %s' % type)
+        r.updated = now
+        
+        session.commit()
+
+
+def get_record(bibcode):
+    with session_scope() as session:
+        r = session.query(Records).filter_by(bibcode=bibcode).first()
+        if r is None:
+            return None
+        return r.toJSON()
+
+
+def update_processed_timestamp(bibcode):
+    with session_scope() as session:
+        r = session.query(Records).filter_by(bibcode=bibcode).first()
+        if r is None:
+            raise Exception('Cant find bibcode {0} to update timestamp'.format(bibcode))
+        r.processed = get_date()
+        session.commit()

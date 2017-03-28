@@ -7,8 +7,8 @@ _strategies = {
       'ads.import-pipeline.read-records':    read_records.readRecordsFromADSExports, #expects [('bibcode','fingerprint'),...]
       'ads.import-pipeline.update-record':   update_records.mergeRecords, #expects [{record}, ...]
       'MongoWriteWorker':       None, #self.mongo.upsertRecords, #expects [{records}, ...]
-      'SolrUpdateWorker':       solr_updater.solrUpdate, #expects ['bibcode', ...]
-      'DeletionWorker':         solr_updater.delete_by_bibcodes, #expects ['bibcode',...]
+      'SolrUpdateWorker':       None, #solr_updater.solrUpdate, #expects ['bibcode', ...]
+      'DeletionWorker':         None, #solr_updater.delete_by_bibcodes, #expects ['bibcode',...]
     }
 
 

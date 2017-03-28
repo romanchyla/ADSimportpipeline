@@ -39,11 +39,13 @@ class TestWorkers(unittest.TestCase):
         self.assertFalse(next_task.called)
         app.task_merge_metadata(stubdata.ADSRECORDS['2015ApJ...815..133S'])
         self.assertTrue(next_task.called)
-        next_task.assert_called_with(u'metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
+        next_task.assert_called_with(u'2015ApJ...815..133S', u'metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
         
     
     @patch('aip.app.task_update_solr.delay', return_value=None)
-    def test_task_update_record(self, next_task, *args):
+    @patch('aip.libs.update_records.update_storage', return_value=None)
+    def test_task_update_record(self, next_task, update_storage, *args):
         self.assertFalse(next_task.called)
-        app.task_update_record('metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
+        app.task_update_record('2015ApJ...815..133S', 'metadata', stubdata.MERGEDRECS['2015ApJ...815..133S'])
         self.assertTrue(next_task.called)
+        self.assertTrue(update_storage.called)

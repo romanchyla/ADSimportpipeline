@@ -39,12 +39,12 @@ def upgrade():
         Column('bibcode', String(19), unique=True, nullable=False),
         Column('status', String(255)),
         
-        Column('metadata', Text),
+        Column('meta_data', Text),
         Column('orcid_claims', Text),
         Column('nonbib_data', Text),
         Column('fulltext', Text),
         
-        Column('metadata_updated', TIMESTAMP),
+        Column('meta_data_updated', TIMESTAMP),
         Column('orcid_claims_updated', TIMESTAMP),
         Column('nonbib_data_updated', TIMESTAMP),
         Column('fulltext_updated', TIMESTAMP),
